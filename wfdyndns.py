@@ -11,18 +11,18 @@ import urllib.parse
 import urllib.request
 import xmlrpc.client
 
-VERSION = '0.1.0'
+VERSION = '0.1.1'
 
 
 class WFAPI:
     endpoint = 'https://api.webfaction.com/'
 
-    # API session expires 60 mins after the last API call
+    # API session expires 60 mins after login call
     session_ttl = 3540
 
     def __init__(self, username, password):
         self.session_id = None
-        self.last_call_time = 0
+        self.login_time = 0
         self.server = xmlrpc.client.ServerProxy(WFAPI.endpoint)
 
         self.username = username
@@ -32,15 +32,15 @@ class WFAPI:
 
     def has_valid_session(self):
         return (self.session_id is not None and
-                self.last_call_time+WFAPI.session_ttl >= int(time.time()))
+                self.login_time+WFAPI.session_ttl >= int(time.time()))
 
     def _call(self, method_name, *args, **kwargs):
         # Login again on session expiry
         if not self.has_valid_session() and method_name != 'login':
-            if not self.login(self.username, self.password):
+            if self.login(self.username, self.password):
+                args = (self.session_id,)+args[1:]
+            else:
                 raise SystemError('API auto-login failed')
-
-        self.last_call_time = int(time.time())
 
         return getattr(self.server, method_name)(*args, **kwargs)
 
@@ -52,6 +52,7 @@ class WFAPI:
 
         if len(result) and len(result[0]):
             self.session_id = result[0]
+            self.login_time = int(time.time())
             return True
 
         return False
