@@ -5,13 +5,14 @@ import os
 import sys
 import time
 import argparse
+import datetime
 import configparser
 import ipaddress
 import urllib.parse
 import urllib.request
 import xmlrpc.client
 
-VERSION = '0.1.1'
+VERSION = '0.1.2'
 
 
 class WFAPI:
@@ -82,6 +83,10 @@ class WFAPI:
         return None
 
 
+def log(message):
+    print('['+datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')+']: '+message)
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description='WebFaction Dynamic DNS Updater'
@@ -98,11 +103,11 @@ def parse_args():
 def main():
     args = parse_args()
 
-    print('WebFaction Dynamic DNS Updater v{}'.format(VERSION))
+    log('WebFaction Dynamic DNS Updater v{}'.format(VERSION))
 
     # Config file checks/parsing
     if not os.path.exists(args.config):
-        print('Configuration file not found: {}'.format(args.config))
+        log('Configuration file not found: {}'.format(args.config))
         sys.exit(1)
 
     config = configparser.ConfigParser()
@@ -110,20 +115,20 @@ def main():
         if len(config.read(args.config)) == 0:
             raise configparser.Error()
     except configparser.Error:
-        print('Failed parsing configuration file: {}'.format(args.config))
+        log('Failed parsing configuration file: {}'.format(args.config))
         sys.exit(1)
 
     # Check IP discovery config value
     ip_discovery = urllib.parse.urlparse(config.get('wfdyndns', 'ip_discovery'))
 
     if ip_discovery.scheme.lower() not in ('http', 'https') or ip_discovery.netloc == '':
-        print('Invalid ip_discover URL provided')
+        log('Invalid ip_discover URL provided')
         sys.exit(1)
 
     # Check wait_mins config value
     wait_mins = config.getint('wfdyndns', 'wait_mins', fallback=10)
     if wait_mins < 1:
-        print('Error, wait_mins must be a positive integer value, exiting')
+        log('Error, wait_mins must be a positive integer value, exiting')
         sys.exit()
 
     wait_secs = wait_mins*60
@@ -131,18 +136,18 @@ def main():
     # Check API config values
     api_username = config.get('wfdyndns', 'api_username')
     if not len(api_username):
-        print('api_username not defined')
+        log('api_username not defined')
         sys.exit(1)
 
     api_password = config.get('wfdyndns', 'api_password')
     if not len(api_password):
-        print('api_password not defined')
+        log('api_password not defined')
         sys.exit(1)
 
     # Check dns_record config value
     dns_record = config.get('wfdyndns', 'dns_record')
     if not len(dns_record):
-        print('dns_record not defined')
+        log('dns_record not defined')
         sys.exit(1)
 
     # (Re-)initialise the API
@@ -161,7 +166,7 @@ def main():
                 ip_str = urllib.request.urlopen(config['wfdyndns']['ip_discovery'], timeout=10) \
                                                 .read().decode('ascii').strip()
             except urllib.request.URLError:
-                print('Failed getting external IP address, waiting...')
+                log('Failed getting external IP address, waiting...')
                 api_init = True
                 sys.stdout.flush()
                 time.sleep(wait_secs)
@@ -170,12 +175,12 @@ def main():
             try:
                 ip = ipaddress.ip_address(ip_str)
             except ValueError:
-                print('Failed parsing IP address: {}, waiting...'.format(ip_str))
+                log('Failed parsing IP address: {}, waiting...'.format(ip_str))
                 sys.stdout.flush()
                 time.sleep(wait_secs)
                 continue
 
-            print('External IP address: {}'.format(ip))
+            log('External IP address: {}'.format(ip))
 
             # Checking A or AAAA record based on our IP address
             ip_field = 'a_ip'
@@ -188,7 +193,7 @@ def main():
             # Record requires creating/updating
             if dns_override is None or \
                (dns_override is not None and str(ip) != dns_override[ip_field]):
-                print('Updating DNS record...')
+                log('Updating DNS record...')
 
                 # Wipe any existing DNS record entries
                 api.delete_dns_override(domain=dns_record)
@@ -198,14 +203,14 @@ def main():
                 else:
                     api.create_dns_override(domain=dns_record, a_ip='', aaaa_ip=str(ip))
             else:
-                print('No update required')
+                log('No update required')
 
-            print('Waiting for {} minute(s)...'.format(wait_mins))
+            log('Waiting for {} minute(s)...'.format(wait_mins))
             sys.stdout.flush()
             time.sleep(wait_secs)
-        except OSError:
+        except Exception:
+            log('Possible network failure/API issue detected, waiting...')
             api_init = True
-            print('Possible network failure detected, waiting...')
             sys.stdout.flush()
             time.sleep(wait_secs)
             continue
